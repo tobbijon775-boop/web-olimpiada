@@ -1,11 +1,29 @@
 import TelegramBot from 'node-telegram-bot-api';
 import fs from 'fs';
+import http from 'http';
 
-const TOKEN = '9221555974:AAHSM4Kxst-RF-ZmOPvTNykk2CPIveayc3Y';
-const ADMIN_IDS = [8310040875, 8299255756, 7214173766]; // O'z Telegram ID raqamingiz`
+// --- Render uchun HTTP server (portni DARHOL ochadi, scan kutib qolmasin) ---
+const PORT = process.env.PORT || 3000;
+http
+  .createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('Bot ishlayapti ✅');
+  })
+  .listen(PORT, '0.0.0.0', () => {
+    console.log(`🌐 HTTP server ${PORT}-portda ishga tushdi (Render uchun)`);
+  });
+
+// TOKEN'ni Render Environment'dan oladi; bo'lmasa shu yerdagisini ishlatadi
+const TOKEN = process.env.TOKEN || '9221555974:AAHSM4Kxst-RF-ZmOPvTNykk2CPIveayc3Y';
+const ADMIN_IDS = [8310040875, 8299255756, 7214173766]; // O'z Telegram ID raqamingiz
 const USERS_FILE = './users.json';
 
 const bot = new TelegramBot(TOKEN, { polling: true });
+
+// Polling xatolarini ushlaymiz — bot qulab tushmasin
+bot.on('polling_error', (err) => {
+  console.error('⚠️ Polling xatosi:', err.code || err.message);
+});
 
 let users = fs.existsSync(USERS_FILE) ? JSON.parse(fs.readFileSync(USERS_FILE, 'utf8')) : {};
 const saveUsers = () => fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
@@ -38,7 +56,10 @@ const authMenu = {
 
 const adminMenu = {
   reply_markup: {
-    keyboard: [["👥 Ro'yxatdan o'tganlar", "◀️ Orqaga"]],
+    keyboard: [
+      ["👥 Ro'yxatdan o'tganlar", "📊 Statistika"],
+      ["◀️ Orqaga"]
+    ],
     resize_keyboard: true
   }
 };
@@ -281,6 +302,46 @@ bot.on('message', async (msg) => {
       return bot.sendMessage(chatId, "Asosiy menyu:", userMenu(chatId));
     }
 
+    if (text === "📊 Statistika") {
+      const list = Object.values(users);
+      const total = list.length;
+      const online = list.filter((u) => u.chatId).length;
+
+      // Sinflar bo'yicha
+      const grade3 = list.filter((u) => u.grade === 3).length;
+      const grade4 = list.filter((u) => u.grade === 4).length;
+
+      // Maktablar bo'yicha (eng ko'p uchraganidan)
+      const schools = {};
+      list.forEach((u) => {
+        const s = u.school || '-';
+        schools[s] = (schools[s] || 0) + 1;
+      });
+      const schoolLines = Object.entries(schools)
+        .sort((a, b) => b[1] - a[1])
+        .map(([s, c]) => `   🏫 ${s}-maktab: <b>${c}</b> ta`)
+        .join('\n');
+
+      // Bugun ro'yxatdan o'tganlar
+      const today = new Date().toLocaleDateString();
+      const todayCount = list.filter(
+        (u) => (u.date || '').startsWith(today)
+      ).length;
+
+      const stat =
+        `📊 <b>STATISTIKA</b>\n\n` +
+        `👥 Jami foydalanuvchilar: <b>${total}</b> ta\n` +
+        `🟢 Tizimga kirgan: <b>${online}</b> ta\n` +
+        `🆕 Bugun qo'shilgan: <b>${todayCount}</b> ta\n\n` +
+        `🎓 <b>Sinflar bo'yicha:</b>\n` +
+        `   3-sinf: <b>${grade3}</b> ta\n` +
+        `   4-sinf: <b>${grade4}</b> ta\n\n` +
+        `🏫 <b>Maktablar bo'yicha:</b>\n` +
+        `${schoolLines || '   —'}`;
+
+      return bot.sendMessage(chatId, stat, { parse_mode: 'HTML' });
+    }
+
     if (text === "👥 Ro'yxatdan o'tganlar") {
       const entries = Object.entries(users);
       if (entries.length === 0) {
@@ -361,3 +422,11 @@ const userMenu = (chatId) => ({
 });
 
 console.log('🚀 Bot muvaffaqiyatli ishga tushdi va ishlamoqda...');
+
+// Kutilmagan xatolar botni to'xtatib qo'ymasin
+process.on('unhandledRejection', (err) => {
+  console.error('⚠️ Ushlanmagan xato (promise):', err?.message || err);
+});
+process.on('uncaughtException', (err) => {
+  console.error('⚠️ Ushlanmagan xato:', err?.message || err);
+});
