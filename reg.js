@@ -236,7 +236,7 @@ bot.on('message', async (msg) => {
     }
 
     const id = generateId();
-    users[id] = {
+    const newUser = {
       id,
       name: temp[chatId].name,
       surname: temp[chatId].surname,
@@ -246,12 +246,20 @@ bot.on('message', async (msg) => {
       chatId: chatId,
       date: new Date().toLocaleString()
     };
+    users[id] = newUser;
     saveUsers();
 
     delete steps[chatId];
     delete temp[chatId];
 
-    // Majburiy obuna: maktabdan keyin to'g'ridan-to'g'ri so'raladi
+    // Obuna bo'lgan bo'lsa — qayta so'ramaymiz, to'g'ridan-to'g'ri menyu.
+    // Obuna bo'lmagan bo'lsa — obuna so'raymiz.
+    if (await isSubscribed(msg.from.id)) {
+      return bot.sendMessage(chatId, welcomeText(newUser), {
+        parse_mode: 'HTML',
+        ...userMenu(chatId)
+      });
+    }
     return sendSubscribePrompt(chatId);
   }
 
@@ -281,11 +289,21 @@ bot.on('message', async (msg) => {
     if (text === "📊 Statistika") {
       const list = Object.values(users);
       const total = list.length;
-      const online = list.filter((u) => u.chatId).length;
 
-      // Sinflar bo'yicha
+      if (total === 0) {
+        return bot.sendMessage(chatId, "📊 Hozircha statistika uchun ma'lumot yo'q.");
+      }
+
+      const online = list.filter((u) => u.chatId).length;
       const grade3 = list.filter((u) => u.grade === 3).length;
       const grade4 = list.filter((u) => u.grade === 4).length;
+
+      // Foiz va progress-bar yasash
+      const pct = (n) => Math.round((n / total) * 100);
+      const bar = (n) => {
+        const filled = Math.round((n / total) * 10);
+        return '▰'.repeat(filled) + '▱'.repeat(10 - filled);
+      };
 
       // Maktablar bo'yicha (eng ko'p uchraganidan)
       const schools = {};
@@ -293,27 +311,34 @@ bot.on('message', async (msg) => {
         const s = u.school || '-';
         schools[s] = (schools[s] || 0) + 1;
       });
+      const medals = ['🥇', '🥈', '🥉'];
       const schoolLines = Object.entries(schools)
         .sort((a, b) => b[1] - a[1])
-        .map(([s, c]) => `   🏫 ${s}-maktab: <b>${c}</b> ta`)
+        .slice(0, 5)
+        .map(([s, c], i) => `${medals[i] || '  🔹'} ${s}-maktab — <b>${c}</b> ta`)
         .join('\n');
 
       // Bugun ro'yxatdan o'tganlar
       const today = new Date().toLocaleDateString();
-      const todayCount = list.filter(
-        (u) => (u.date || '').startsWith(today)
-      ).length;
+      const todayCount = list.filter((u) => (u.date || '').startsWith(today)).length;
+
+      // Oxirgi ro'yxatdan o'tgan
+      const last = list[list.length - 1];
 
       const stat =
-        `📊 <b>STATISTIKA</b>\n\n` +
-        `👥 Jami foydalanuvchilar: <b>${total}</b> ta\n` +
-        `🟢 Tizimga kirgan: <b>${online}</b> ta\n` +
-        `🆕 Bugun qo'shilgan: <b>${todayCount}</b> ta\n\n` +
-        `🎓 <b>Sinflar bo'yicha:</b>\n` +
-        `   3-sinf: <b>${grade3}</b> ta\n` +
-        `   4-sinf: <b>${grade4}</b> ta\n\n` +
-        `🏫 <b>Maktablar bo'yicha:</b>\n` +
-        `${schoolLines || '   —'}`;
+        `📊 <b>STATISTIKA</b>\n` +
+        `━━━━━━━━━━━━━━━━\n\n` +
+        `👥 <b>Jami o'quvchilar:</b>  <b>${total}</b> ta\n` +
+        `🟢 <b>Faol (tizimda):</b>  ${online} ta\n` +
+        `🆕 <b>Bugun qo'shilgan:</b>  ${todayCount} ta\n\n` +
+        `🎓 <b>Sinflar bo'yicha</b>\n` +
+        `3-sinf  ${bar(grade3)}  <b>${grade3}</b> (${pct(grade3)}%)\n` +
+        `4-sinf  ${bar(grade4)}  <b>${grade4}</b> (${pct(grade4)}%)\n\n` +
+        `🏫 <b>Eng faol maktablar</b>\n` +
+        `${schoolLines || '  —'}\n\n` +
+        `━━━━━━━━━━━━━━━━\n` +
+        `🕓 Oxirgi: <b>${last.name} ${last.surname || ''}</b>\n` +
+        `📅 ${last.date}`;
 
       return bot.sendMessage(chatId, stat, { parse_mode: 'HTML' });
     }
