@@ -3,9 +3,15 @@ import fs from 'fs';
 import http from 'http';
 
 // --- Render uchun HTTP server (portni DARHOL ochadi, scan kutib qolmasin) ---
+// cron-job.org shu manzilni (masalan .../ping) har 10 daqiqada chaqirib tursa,
+// bepul Render xizmati uxlab qolmaydi va bot 24/7 ishlaydi.
 const PORT = process.env.PORT || 3000;
 http
   .createServer((req, res) => {
+    if (req.url === '/ping') {
+      res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+      return res.end('pong 🏓');
+    }
     res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
     res.end('Bot ishlayapti ✅');
   })
@@ -49,7 +55,7 @@ const normalizeUzPhone = (raw) => {
 
 const authMenu = {
   reply_markup: {
-    keyboard: [["📝 Ro'yxatdan o'tish", "🔑 Login"]],
+    keyboard: [["📝 Ro'yxatdan o'tish"]],
     resize_keyboard: true
   }
 };
@@ -169,14 +175,6 @@ bot.on('message', async (msg) => {
     return bot.sendMessage(chatId, START_TEXT, { parse_mode: 'HTML', ...authMenu });
   }
 
-  if (text === '🚪 Chiqish') {
-    if (currentUser) {
-      currentUser.chatId = null;
-      saveUsers();
-    }
-    return bot.sendMessage(chatId, "Akkauntdan chiqdingiz.", authMenu);
-  }
-
   // Register
   if (text === "📝 Ro'yxatdan o'tish") {
     steps[chatId] = 'REG_FULLNAME';
@@ -188,6 +186,11 @@ bot.on('message', async (msg) => {
     const parts = text.split(/\s+/).filter(Boolean);
     if (parts.length < 2) {
       return bot.sendMessage(chatId, "❌ Ism va familyani birga kiriting (masalan: Ali Valiyev):");
+    }
+    // Faqat harflar bo'lsin — raqam yoki belgi bo'lmasin
+    const onlyLetters = /^[\p{L}'ʼʻ‘’`.\- ]+$/u;
+    if (!onlyLetters.test(text)) {
+      return bot.sendMessage(chatId, "❌ Ism va familya faqat harflardan iborat bo'lishi kerak. Qayta kiriting:");
     }
     temp[chatId].name = parts[0];
     temp[chatId].surname = parts.slice(1).join(' ');
@@ -249,33 +252,6 @@ bot.on('message', async (msg) => {
     delete temp[chatId];
 
     // Majburiy obuna: maktabdan keyin to'g'ridan-to'g'ri so'raladi
-    return sendSubscribePrompt(chatId);
-  }
-
-  // Login
-  if (text === "🔑 Login") {
-    steps[chatId] = 'LOG_NAME';
-    return bot.sendMessage(chatId, "Ismingizni kiriting:", cancelMenu);
-  }
-
-  if (steps[chatId] === 'LOG_NAME') {
-    const name = text.toLowerCase();
-    const account = Object.values(users).find((u) => u.name.toLowerCase() === name);
-    if (!account) {
-      return bot.sendMessage(chatId, "❌ Bunday foydalanuvchi topilmadi. Qayta kiriting:");
-    }
-    account.chatId = chatId;
-    saveUsers();
-
-    const loggedName = account.name;
-    delete steps[chatId];
-    delete temp[chatId];
-
-    await bot.sendMessage(chatId, `✅ Xush kelibsiz, <b>${loggedName}</b>!`, {
-      parse_mode: 'HTML'
-    });
-
-    // Majburiy obuna: login qilgach har doim so'raladi
     return sendSubscribePrompt(chatId);
   }
 
@@ -415,8 +391,8 @@ bot.on('callback_query', async (query) => {
 const userMenu = (chatId) => ({
   reply_markup: {
     keyboard: isAdmin(chatId)
-      ? [["👤 Profilim", "🚪 Chiqish"], ["⚙️ Admin Panel"]]
-      : [["👤 Profilim", "🚪 Chiqish"]],
+      ? [["👤 Profilim"], ["⚙️ Admin Panel"]]
+      : [["👤 Profilim"]],
     resize_keyboard: true
   }
 });
